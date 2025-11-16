@@ -58,6 +58,11 @@ def get_latest_run():
     
     return runs[0]
 
+def _supports_all_drives():
+    value = os.environ.get('GDRIVE_SUPPORTS_ALL_DRIVES', '').strip().lower()
+    return value in {'1', 'true', 'yes', 'on'}
+
+
 def upload_file(service, file_path, folder_id, file_name=None):
     if file_name is None:
         file_name = Path(file_path).name
@@ -68,10 +73,15 @@ def upload_file(service, file_path, folder_id, file_name=None):
     }
     
     media = MediaFileUpload(file_path, resumable=True)
+    request_kwargs = {}
+    if _supports_all_drives():
+        request_kwargs['supportsAllDrives'] = True
+    
     file = service.files().create(
         body=file_metadata,
         media_body=media,
-        fields='id, name'
+        fields='id, name',
+        **request_kwargs
     ).execute()
     
     print(f"Uploaded: {file.get('name')} (ID: {file.get('id')})")
