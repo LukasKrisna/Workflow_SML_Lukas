@@ -39,7 +39,16 @@ jobs:
 
       - name: Get latest MLflow run_id
         run: |
-          RUN_ID=$(ls -td mlruns/0/*/ | head -n 1 | cut -d'/' -f3)
+          RUN_ID=$(python -c "
+          import os
+          import mlflow
+          client = mlflow.tracking.MlflowClient()
+          runs = client.search_runs(experiment_ids=['0'], order_by=['start_time DESC'], max_results=1)
+          if runs:
+              print(runs[0].info.run_id)
+          else:
+              raise Exception('No runs found')
+          ")
           echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
           echo "Latest run_id: $RUN_ID"
 
