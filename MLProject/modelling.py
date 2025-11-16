@@ -19,12 +19,18 @@ def load_preprocessed_data():
     return X_train, X_val, y_train, y_val
 
 def train_basic_model(X_train, y_train, X_val, y_val):
-    mlflow.set_experiment("Diabetes_Classification_Basic")
+    active_run = mlflow.active_run()
+    
+    if active_run is None:
+        mlflow.set_experiment("Diabetes_Classification_Basic")
+        run_context = mlflow.start_run(run_name="RandomForest_Basic_No_Tuning")
+    else:
+        run_context = None
     
     mlflow.autolog()
     
-    with mlflow.start_run(run_name="RandomForest_Basic_No_Tuning"):
-        print("\nTraining RandomForestClassifier (no hyperparameter tuning)...")
+    try:
+        print("\nTraining RandomForestClassifier...")
         
         model = RandomForestClassifier(random_state=42, n_jobs=-1)
         
@@ -52,7 +58,11 @@ def train_basic_model(X_train, y_train, X_val, y_val):
         print(f"\nMLflow Run ID: {run.info.run_id}")
         print(f"Artifact URI: {run.info.artifact_uri}")
         
-    return model
+        return model
+        
+    finally:
+        if run_context is not None:
+            mlflow.end_run()
 
 def main():
     X_train, X_val, y_train, y_val = load_preprocessed_data()
