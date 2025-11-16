@@ -2,9 +2,18 @@ import os
 import json
 import mlflow
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from pathlib import Path
+
+DEFAULT_SCOPES = ['https://www.googleapis.com/auth/drive.file']
+
+def _get_scopes():
+    scopes_env = os.environ.get('GDRIVE_SCOPES')
+    if scopes_env:
+        return [scope.strip() for scope in scopes_env.split(',') if scope.strip()]
+    return DEFAULT_SCOPES
 
 def get_credentials():
     creds_json = os.environ.get('GDRIVE_CREDENTIALS')
@@ -12,8 +21,21 @@ def get_credentials():
         raise ValueError("GDRIVE_CREDENTIALS not found in environment variables")
     
     creds_info = json.loads(creds_json)
-    creds = Credentials.from_authorized_user_info(creds_info)
-    return creds
+    scopes = _get_scopes()
+
+    if creds_info.get('type') == 'service_account':
+        return service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
+
+    required_fields = ['refresh_token', 'client_secret']
+    missing_fields = [field for field in required_fields if field not in creds_info]
+    if missing_fields:
+        raise ValueError(
+            "Authorized user info missing fields "
+            f"{', '.join(missing_fields)}. Provide a complete OAuth token "
+            "response or a service account JSON."
+        )
+
+    return Credentials.from_authorized_user_info(creds_info, scopes=scopes)
 
 def get_latest_run():
     client = mlflow.tracking.MlflowClient()
