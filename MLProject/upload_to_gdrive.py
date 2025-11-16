@@ -1,133 +1,70 @@
 import os
 import json
-import mlflow
-from google.oauth2.credentials import Credentials
-from google.oauth2 import service_account
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from pathlib import Path
 
-DEFAULT_SCOPES = ['https://www.googleapis.com/auth/drive.file']
+creds = json.loads(os.environ["GDRIVE_CREDENTIALS"])
+credentials = Credentials.from_service_account_info(
+    creds,
+    scopes=["https://www.googleapis.com/auth/drive"]
+)
 
-def _get_scopes():
-    scopes_env = os.environ.get('GDRIVE_SCOPES')
-    if scopes_env:
-        return [scope.strip() for scope in scopes_env.split(',') if scope.strip()]
-    return DEFAULT_SCOPES
+service = build('drive', 'v3', credentials=credentials)
 
-def get_credentials():
-    creds_json = os.environ.get('GDRIVE_CREDENTIALS')
-    if not creds_json:
-        raise ValueError("GDRIVE_CREDENTIALS not found in environment variables")
-    
-    creds_info = json.loads(creds_json)
-    scopes = _get_scopes()
+SHARED_DRIVE_ID = os.environ["GDRIVE_FOLDER_ID"]
 
-    if creds_info.get('type') == 'service_account':
-        return service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
+def upload_directory(local_dir_path, parent_drive_id):
+    for item_name in os.listdir(local_dir_path):
+        item_path = os.path.join(local_dir_path, item_name)
+        if os.path.isdir(item_path):
+            folder_meta = {
+                'name': item_name,
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [parent_drive_id]
+            }
+            created_folder = service.files().create(
+                body=folder_meta,
+                fields='id',
+                supportsAllDrives=True
+            ).execute()
+            new_folder_id = created_folder["id"]
+            print(f"Created folder: {item_name} (ID: {new_folder_id})")
+            
+            upload_directory(item_path, new_folder_id)
+        else:
+            print(f"Uploading file: {item_name}")
+            file_meta = {
+                'name': item_name,
+                'parents': [parent_drive_id]
+            }
+            media = MediaFileUpload(item_path, resumable=True)
+            service.files().create(
+                body=file_meta,
+                media_body=media,
+                fields='id',
+                supportsAllDrives=True
+            ).execute()
 
-    required_fields = ['refresh_token', 'client_secret']
-    missing_fields = [field for field in required_fields if field not in creds_info]
-    if missing_fields:
-        raise ValueError(
-            "Authorized user info missing fields "
-            f"{', '.join(missing_fields)}. Provide a complete OAuth token "
-            "response or a service account JSON."
-        )
+local_mlruns_0 = "./mlruns/0"
 
-    return Credentials.from_authorized_user_info(creds_info, scopes=scopes)
+for run_id in os.listdir(local_mlruns_0):
+    run_id_local_path = os.path.join(local_mlruns_0, run_id)
+    if os.path.isdir(run_id_local_path):
+        run_id_folder_meta = {
+            'name': run_id,
+            'mimeType': 'application/vnd.google-apps.folder',
+            'parents': [SHARED_DRIVE_ID]
+        }
+        run_id_folder = service.files().create(
+            body=run_id_folder_meta,
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
+        run_id_folder_id = run_id_folder["id"]
+        print(f"=== Created run_id folder: {run_id} (ID: {run_id_folder_id}) ===")
+        
+        upload_directory(run_id_local_path, run_id_folder_id)
 
-def get_latest_run():
-    client = mlflow.tracking.MlflowClient()
-    experiment = client.get_experiment_by_name("Diabetes_Classification_Basic")
-    
-    if experiment is None:
-        experiments = client.search_experiments()
-        if not experiments:
-            raise ValueError("No experiments found")
-        experiment = experiments[0]
-    
-    runs = client.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        order_by=["start_time DESC"],
-        max_results=1
-    )
-    
-    if not runs:
-        raise ValueError("No runs found in experiment")
-    
-    return runs[0]
-
-def _supports_all_drives():
-    value = os.environ.get('GDRIVE_SUPPORTS_ALL_DRIVES', '').strip().lower()
-    return value in {'1', 'true', 'yes', 'on'}
-
-
-def upload_file(service, file_path, folder_id, file_name=None):
-    if file_name is None:
-        file_name = Path(file_path).name
-    
-    file_metadata = {
-        'name': file_name,
-        'parents': [folder_id]
-    }
-    
-    media = MediaFileUpload(file_path, resumable=True)
-    request_kwargs = {}
-    if _supports_all_drives():
-        request_kwargs['supportsAllDrives'] = True
-    
-    file = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields='id, name',
-        **request_kwargs
-    ).execute()
-    
-    print(f"Uploaded: {file.get('name')} (ID: {file.get('id')})")
-    return file
-
-def upload_artifacts():
-    creds = get_credentials()
-    service = build('drive', 'v3', credentials=creds)
-    
-    folder_id = os.environ.get('GDRIVE_FOLDER_ID')
-    if not folder_id:
-        raise ValueError("GDRIVE_FOLDER_ID not found in environment variables")
-    
-    run = get_latest_run()
-    run_id = run.info.run_id
-    
-    print(f"Uploading artifacts from run: {run_id}")
-    
-    artifact_path = Path(run.info.artifact_uri.replace('file://', ''))
-    
-    if not artifact_path.exists():
-        print(f"Warning: Artifact path does not exist: {artifact_path}")
-        return
-    
-    uploaded_files = []
-    
-    for file_path in artifact_path.rglob('*'):
-        if file_path.is_file():
-            try:
-                relative_path = file_path.relative_to(artifact_path)
-                upload_name = f"{run_id}_{relative_path}"
-                upload_file(service, str(file_path), folder_id, str(upload_name))
-                uploaded_files.append(str(upload_name))
-            except Exception as e:
-                print(f"Error uploading {file_path}: {e}")
-    
-    metrics_file = Path('metrics.json')
-    with open(metrics_file, 'w') as f:
-        json.dump(run.data.metrics, f, indent=2)
-    
-    upload_file(service, str(metrics_file), folder_id, f"{run_id}_metrics.json")
-    uploaded_files.append(f"{run_id}_metrics.json")
-    
-    print(f"\nTotal files uploaded: {len(uploaded_files)}")
-    print("Upload to Google Drive completed successfully")
-
-if __name__ == "__main__":
-    upload_artifacts()
+print("=== All run_id folders and files have been uploaded to Shared Drive! ===")
 
