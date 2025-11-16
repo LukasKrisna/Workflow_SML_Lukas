@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 import mlflow
 import mlflow.sklearn
 from sklearn.ensemble import RandomForestClassifier
@@ -19,50 +20,44 @@ def load_preprocessed_data():
     return X_train, X_val, y_train, y_val
 
 def train_basic_model(X_train, y_train, X_val, y_val):
-    active_run = mlflow.active_run()
+    is_mlflow_project = os.environ.get('MLFLOW_RUN_ID') is not None
     
-    if active_run is None:
+    if not is_mlflow_project:
         mlflow.set_experiment("Diabetes_Classification_Basic")
-        run_context = mlflow.start_run(run_name="RandomForest_Basic_No_Tuning")
-    else:
-        run_context = None
+        mlflow.start_run(run_name="RandomForest_Basic_No_Tuning")
     
     mlflow.autolog()
     
-    try:
-        print("\nTraining RandomForestClassifier...")
-        
-        model = RandomForestClassifier(random_state=42, n_jobs=-1)
-        
-        model.fit(X_train, y_train)
+    model = RandomForestClassifier(random_state=42, n_jobs=-1)
+    
+    model.fit(X_train, y_train)
 
-        y_train_pred = model.predict(X_train)
-        y_val_pred = model.predict(X_val)
-        
-        train_accuracy = accuracy_score(y_train, y_train_pred)
-        val_accuracy = accuracy_score(y_val, y_val_pred)
-        val_precision = precision_score(y_val, y_val_pred)
-        val_recall = recall_score(y_val, y_val_pred)
-        val_f1 = f1_score(y_val, y_val_pred)
-        
-        print(f"Training Accuracy:   {train_accuracy:.4f}")
-        print(f"Validation Accuracy: {val_accuracy:.4f}")
-        print(f"Validation Precision: {val_precision:.4f}")
-        print(f"Validation Recall:    {val_recall:.4f}")
-        print(f"Validation F1-Score:  {val_f1:.4f}")
-        
-        print("\nClassification Report:")
-        print(classification_report(y_val, y_val_pred))
-        
-        run = mlflow.active_run()
-        print(f"\nMLflow Run ID: {run.info.run_id}")
-        print(f"Artifact URI: {run.info.artifact_uri}")
-        
-        return model
-        
-    finally:
-        if run_context is not None:
-            mlflow.end_run()
+    y_train_pred = model.predict(X_train)
+    y_val_pred = model.predict(X_val)
+    
+    train_accuracy = accuracy_score(y_train, y_train_pred)
+    val_accuracy = accuracy_score(y_val, y_val_pred)
+    val_precision = precision_score(y_val, y_val_pred)
+    val_recall = recall_score(y_val, y_val_pred)
+    val_f1 = f1_score(y_val, y_val_pred)
+    
+    print(f"Training Accuracy:   {train_accuracy:.4f}")
+    print(f"Validation Accuracy: {val_accuracy:.4f}")
+    print(f"Validation Precision: {val_precision:.4f}")
+    print(f"Validation Recall:    {val_recall:.4f}")
+    print(f"Validation F1-Score:  {val_f1:.4f}")
+    
+    print("\nClassification Report:")
+    print(classification_report(y_val, y_val_pred))
+    
+    run = mlflow.active_run()
+    print(f"\nMLflow Run ID: {run.info.run_id}")
+    print(f"Artifact URI: {run.info.artifact_uri}")
+    
+    if not is_mlflow_project:
+        mlflow.end_run()
+    
+    return model
 
 def main():
     X_train, X_val, y_train, y_val = load_preprocessed_data()
