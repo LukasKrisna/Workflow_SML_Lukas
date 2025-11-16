@@ -50,11 +50,14 @@ def train_basic_model(X_train, y_train, X_val, y_val):
     print("\nClassification Report:")
     print(classification_report(y_val, y_val_pred))
     
-    run = mlflow.active_run()
-    print(f"\nMLflow Run ID: {run.info.run_id}")
-    print(f"Artifact URI: {run.info.artifact_uri}")
-    
-    if not is_mlflow_project:
+    if is_mlflow_project:
+        run_id = os.environ.get('MLFLOW_RUN_ID')
+        print(f"\nMLflow Run ID: {run_id}")
+    else:
+        run = mlflow.active_run()
+        if run:
+            print(f"\nMLflow Run ID: {run.info.run_id}")
+            print(f"Artifact URI: {run.info.artifact_uri}")
         mlflow.end_run()
     
     return model
